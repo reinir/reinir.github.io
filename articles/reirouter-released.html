@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1" charset="utf-8">
+<meta name="author" content="Reinir Puradinata">
+<title>Rei&apos;s Blog - ReiRouter released</title>
+<link href="/css/bootstrap.min.css" rel="stylesheet">
+<link href="/css/bootstrap-theme.min.css" rel="stylesheet">
+<link href="/css/app.css" rel="stylesheet">
+<script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create','UA-83683907-2','auto');ga('send','pageview');</script>
+<link href="/css/flot.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-inverse navbar-static-top" style="margin-bottom:0">
+	<div class="container">
+		<div class="navbar-header">
+			<a class="navbar-brand active" href="/">Rei&apos;s Blog</a>
+		</div>
+		<div id="navbar" class="navbar-collapse collapse"></div>
+	</div>
+</nav>
+
+
+	<div style="padding-top:14px">
+		<div class="container">
+			<div class="row">
+					<div class="col-sm-12"><div class="article">
+	<h1>ReiRouter released</h1>
+    <p class='text-muted'>2017 March 17
+    <p>A few days ago I released ReiRouter, a fast and scalable PHP request router.
+        You may be thinking, "Why another router?"
+        If you have been working exclusively with regex-based routers so far, you will find that ReiRouter is not only unbelievably fast,
+        it also has features that are impossible for any regex-based router.
+        
+    <h3>Benchmark results</h3>
+	<div class='row' style='margin-top:20px;margin-bottom:20px'>
+		<div class='col-sm-6'>
+            <p><b>Known routes (requests/second)</b>
+    		<div class="flot-container"><div id="cog3" style="height:100%"></div></div>
+		</div>
+		<div class='col-sm-6'>
+            <p><b>Unknown routes (requests/second)</b>
+    		<div class="flot-container"><div id="cog4" style="height:100%"></div></div>
+		</div>
+	</div>
+
+    <p>In the next article, I'll explain the algorithm design principle behind ReiRouter that allows such high performance.
+        Go to <a href='https://github.com/reinir/reirouter'>https://github.com/reinir/reirouter</a> for the source code and more info.
+</div>
+
+</div>
+				</div>
+			<hr>
+			<footer><div class='part-container' style='margin-bottom:10px'><div class='part'>Copyright &copy; 2017 <a href='mailto:reinir@gmail.com'>Reinir Puradinata</a></div></div></footer>
+		</div>
+	</div>
+
+<script src="/js/jquery.min.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script src="/js/ie10-viewport-bug-workaround.js"></script>
+<script src="/js/jquery.flot.min.js"></script>
+<script src="/js/jquery.flot.resize.min.js"></script>
+<script src="/js/jquery.flot.fillbetween.min.js"></script>
+<script>
+var cog3data=[{"data":[[10,60930],[40,41458],[70,32945],[100,26373],[200,16068],[300,11633],[400,9238],[600,6325],[800,4960],[1000,4026]],"color":3,"label":"FastRoute"},{"data":[[10,56253],[40,55899],[70,55792],[100,56198],[200,55415],[300,56284],[400,55957],[600,56475],[800,55847],[1000,56527]],"color":"#47a","label":"ReiRouter"}];
+var cog3options={"series":{"lines":{"show":true},"points":{"show":true}},"grid":{"hoverable":true}};
+$.plot("#cog3",cog3data,cog3options);
+</script>
+<script>
+var cog4data=[{"data":[[10,120309],[40,45184],[70,27942],[100,20332],[200,10657],[300,7194],[400,5357],[600,3584],[800,2740],[1000,2188]],"color":2,"label":"FastRoute"},{"data":[[10,397967],[40,391586],[70,393576],[100,396577],[200,397151],[300,393401],[400,397177],[600,393181],[800,390585],[1000,391937]],"color":0,"label":"ReiRouter"}];
+var cog4options={"series":{"lines":{"show":true},"points":{"show":true}},"grid":{"hoverable":true}};
+$.plot("#cog4",cog4data,cog4options);
+</script>
+<script>
+$("<div id='cog2rate_tooltip'></div>").css({"position":"absolute","display":"none","border":"1px solid #ccc","padding":"2px 6px","background-color":"rgba(238,238,238,0.85)","color":"#000"}).appendTo("body");
+$("#cog3").bind("plothover",function(event,pos,item){
+    if(item){
+        var x = item.datapoint[0].toFixed(0),
+            y = item.datapoint[1].toFixed(0);
+        $("#cog2rate_tooltip")
+            .html("<b>"+item.series.label+"</b> at <b>"+x+"</b> routes<br><b>"+y+"</b> requests/second")
+            .css({top: item.pageY+16, left: item.pageX-32})
+            .fadeIn(300);
+    }else{
+        $("#cog2rate_tooltip").hide();
+    }
+});
+$("#cog4").bind("plothover",function(event,pos,item){
+    if(item){
+        var x = item.datapoint[0].toFixed(0),
+            y = item.datapoint[1].toFixed(0);
+        $("#cog2rate_tooltip")
+            .html("<b>"+item.series.label+"</b> at <b>"+x+"</b> routes<br><b>"+y+"</b> requests/second")
+            .css({top: item.pageY+16, left: item.pageX-32})
+            .fadeIn(300);
+    }else{
+        $("#cog2rate_tooltip").hide();
+    }
+});
+</script>
+</body>
+</html>

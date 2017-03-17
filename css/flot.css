@@ -1,0 +1,18 @@
+.flot-container {
+	height: 240px;
+}
+@media (min-width: 768px) {
+	.flot-container {
+		height: 320px;
+	}
+}
+@media (min-width: 992px) {
+	.flot-container {
+		height: 400px;
+	}
+}
+@media (min-width: 1200px) {
+	.flot-container {
+		height: 480px;
+	}
+}
