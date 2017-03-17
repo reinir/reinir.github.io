@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1" charset="utf-8">
+<meta name="author" content="Reinir Puradinata">
+<meta name="description" content="I stumbled on a peculiar bug in Slim Framework that has remained unsolved for 5 years and has eluded many including Slim Framework&apos;s author himself. I decided to investigate and found the solution.">
+<title>Rei&apos;s Blog - HTTP, Slim and ApacheBench</title>
+<link href="/css/bootstrap.min.css" rel="stylesheet">
+<link href="/css/bootstrap-theme.min.css" rel="stylesheet">
+<link href="/css/app.css" rel="stylesheet">
+<script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','//www.google-analytics.com/analytics.js','ga');ga('create','UA-83683907-2','auto');ga('send','pageview');</script>
+</head>
+<body>
+<nav class="navbar navbar-inverse navbar-static-top" style="margin-bottom:0">
+	<div class="container">
+		<div class="navbar-header">
+			<a class="navbar-brand active" href="/">Rei&apos;s Blog</a>
+		</div>
+		<div id="navbar" class="navbar-collapse collapse"></div>
+	</div>
+</nav>
+
+
+	<div style="padding-top:14px">
+		<div class="container">
+			<div class="row">
+					<div class="col-sm-12"><div class="article">
+	<h1 id='http-slim-and-apachebench'>HTTP, Slim and ApacheBench</h1>
+    <p class='text-muted'>2016 November 27
+    <p>I stumbled on a peculiar bug in Slim Framework that has remained unsolved for 5 years and has eluded many including Slim Framework's author himself.
+		I decided to investigate and found the solution.
+
+
+    <h3 id='introduction'>Introduction</h3>
+	<p>Have you ever used ApacheBench and found that your PHP application is fast if you use the HTTP Keep-Alive feature, but really slow if you don't?
+	So slow, you always get less than 1 request per second?
+	<p>This article describes the discovery of this strange problem,
+	the investigation that revealed that ApacheBench is not at fault,
+	and an effective solution to prevent the same problem in your own framework or application.
+	<p>This started as a curiosity any framework author would have: "How does it compare to other frameworks?"
+	The first thing that came to mind is of course performance, so I selected several frameworks to compare to.
+	When I was benchmarking, I found something curious about Slim Framework.
+
+	<h3 id='the-discovery'>The discovery</h3>
+	<p>I benchmarked Slim Framework's "Welcome to Slim!" example and two of my own
+	using my favorite ApacheBench command: <code>ab -t 2 -c 10 -k localhost/<i>application-name</i>/</code>.
+	<p>The results are good but I noticed that one of my application ignores Keep-Alive unlike the other two, probably because the response is too big.
+	I redid the benchmark without the <code>-k</code> switch, expecting that the other two would just be a little slower.
+	I was surprised.
+
+	<div class='table-responsive'>
+		<table class='table table-hover'>
+			<thead>
+				<tr><th>Framework
+					<th style='text-align:right'>Requests/second
+					<th style='text-align:right'>Time/request
+					<th style='text-align:right'>Content length
+				</tr>
+			<tbody>
+				<tr align='right'><td align='left'><a href='http://slimframework.com'>Slim Framework 3.6.0 ("Welcome to Slim!" example)</a>
+					<td>0.18 #/sec
+					<td>5524.410 ms
+					<td>16 bytes
+				</tr>
+				<tr align='right'><td align='left'><a href='http://cogframework.com/ab/reinir/hello-world'>Cog Framework 1.0 (Hello World)</a>
+					<td>1682.88 #/sec
+					<td>0.594 ms
+					<td>722 bytes
+				</tr>
+				<tr align='right'><td align='left'><a href='http://cogframework.com/ab/reinir/benchmark'>Cog Framework 1.0 + Template (Router Benchmark)</a>
+					<td>1054.36 #/sec
+					<td>0.948 ms
+					<td>12269 bytes
+				</tr>
+		</table>
+	</div>
+
+    <p>That can't be right.
+    That is a lot slower, abnormally slower, even.
+	I repeated the benchmark several times and got the same result: Slim can only serve 1 request in more than 5 seconds.
+	Something odd is going on here.
+	<p>A search revealed <a href='http://help.slimframework.com/discussions/problems/24-high-loading-times-in-apache-bench'>a thread discussing the same problem</a>
+	started in January 2012 with no conclusion, so it looks like the problem has been around for almost 5 years, maybe even longer.
+	In the discussion thread, joined by Slim's author Josh Lockhart, several suspicions arose about the likely cause of the problem:
+	<ul>
+		<li>A bug in Slim if the request is not Keep-Alive.</li>
+		<li>A bug in ApacheBench.</li>
+		<li>A mismatch between the request and the response HTTP version.</li>
+	</ul>
+	<p>Somehow thinking that I can help, I decided to investigate.
+	I discovered that the closest suspicion to the actual cause is the first one.
+	That's right, Slim Framework has a bug in the way it handles requests.
+	<p>After finding the exact cause, the solution is easy.
+	Although Slim seems to be the only framework with the bug, it is clear that the bug is actually not exclusive to Slim,
+	thus your framework or application may also have the same bug and can also benefit from the same solution.
+	<p>If it is just the solution you're interested in, <a href='#the-solution'>jump down to it</a> or scroll down.
+	This is the investigation.
+
+	<h3 id='http-version'>HTTP version</h3>
+	<p>While studying Slim's source code, I found that Slim always returns HTTP/1.1 response by default without examining the request.
+	So at first, the third suspicion might be the right one.
+	To verify, I downloaded the specification: <a href='http://tools.ietf.org/html/rfc7230'>RFC7230</a>.
+	<p>Soon enough, I found a relevant text.
+	RFC7230 Section 2.6 says this about protocol versioning:
+	<i id='quote-1'>The minor version advertises the sender's communication capabilities even when the sender is only using a
+	backwards-compatible subset of the protocol, thereby letting the recipient know that more advanced features
+	can be used in response (by servers) or in future requests (by clients).</i>
+	<p>In other words, sending an HTTP/1.1 response to an HTTP/1.0 request is allowed as a way to advertise that the server is capable of handling higher protocol version than the one received in the request.
+	By doing so, the server is basically saying "Hey, I can handle version 1.1 of the protocol" and this is not a problem.
+	<p>In fact, further in, the same section states: <i id='quote-2'>A server SHOULD send a response version equal to the highest version
+	to which the server is conformant that has a major version less than or equal to the one received in the request.</i>
+	Meaning, if a server supports HTTP/1.9 (assuming it exists) it <b>should</b> send an HTTP/1.9 response to any HTTP/1.x request.
+	<p>Also in practice, my Hello World and Router Benchmark applications both return HTTP/1.1 responses without getting Slim's problem.
+	So the version mismatch suspicion is incorrect.
+	<p>On to ApacheBench.
+
+	<h3 id='apachebench'>ApacheBench</h3>
+	<p>In the discussion thread, Josh stated his strong suspicion that the problem is in ApacheBench.
+	Considering no other framework has the same problem, Slim was the more likely culprit but it wasn't conclusive.
+	As luck would have it, someone posted his ApacheBench log which I found helpful because I noticed a problem and for some reason, I forgot about the -v switch.
+	<p id='my-log'>Here's my log:
+
+<pre class='syntax'>
+Benchmarking localhost (be patient)...INFO: GET header ==
+---
+GET /slim/ HTTP/1.0
+Host: localhost
+User-Agent: ApacheBench/2.3
+Accept: */*
+
+
+---
+LOG: header received:
+HTTP/1.1 200 OK
+Date: Tue, 29 Nov 2016 10:10:35 GMT
+Server: Apache/2.4.9 (Win32)
+Content-Length: 16
+Content-Type: text/html; charset=UTF-8
+
+Welcome to Slim!
+..done
+
+
+Time taken for tests:   5.516 seconds
+Complete requests:      1
+</pre>
+
+	<p>That's the problem, right there.
+    <p>That is exactly the same problem I see in the log posted in the discussion thread.
+	If you are familiar with the differences between HTTP/1.0 and HTTP/1.1, you can immediately see that Slim sends the wrong response.
+	<p>If you don't see the problem, don't worry.
+	Before the end of this article, I promise you will be able to.
+	<p>This is what happens when ApacheBench interacts with Slim without the <code>-k</code> switch:
+	<ul>
+		<li><p>When ApacheBench sends an HTTP/1.0 request, it expects that the server will close the connection.
+			This complies with Section A.1.2 that states: <i id='quote-3'>In HTTP/1.0, each connection is established by the client prior to
+			the request and closed by the server after sending the response.</i>
+			<p>In other words, ApacheBench doesn't have an issue closing the connection as Josh suspected.
+			Quite the opposite, it is actually waiting for the server to close the connection, in compliance with the specification.
+		</li>
+		<li><p>Then why doesn't the server close the connection?
+			Because the server is waiting for additional requests, also in compliance with the specification.
+			Section 6.3 states: <i id='quote-4'>A client MAY send additional requests on a persistent connection until it sends or receives a "close"
+			connection option or receives an HTTP/1.0 response without a "keep-alive" connection option.</i>
+			<p>Because Slim sends the wrong response, the server believes that the connection is persistent,
+			therefore it keeps it open to wait for additional requests until a timeout occurs,
+			even if the client is actually waiting for connection closure.
+		</li>
+	</ul>
+	<p>So there you have it.
+	Both Apache and ApacheBench are doing their jobs correctly according to specification.
+	Slim inadvertently got them waiting for each other by sending the wrong response.
+	<a href='https://seancoates.com/blogs/http-1-and-the-connection-header/'>This blog post that Josh referred to</a>
+	unfortunately has the wrong conclusion because it shows the wrong response sent to ApacheBench as well, although there is no indication about what framework was being used, if any.
+	<p>Why is it wrong? Because it causes a deadlock and therefore it is not sufficiently backwards-compatible. Section 2.6 states:
+	<i id='quote-5'>A recipient can assume that a message with a higher minor version, when sent to a recipient that
+	has not yet indicated support for that higher version, is sufficiently backwards-compatible to be safely processed by any
+	implementation of the same major version.</i>
+	<p>The conclusion: Slim Framework is the guilty party.
+	It has been for years.
+
+	<h3 id='the-correct-response'>The correct response</h3>
+	<p>If Slim has been sending the wrong response for years, what is the correct response?
+	The correct response is clearly defined in <a href='#quote-4'>Section 6.3 that I quoted above</a>, which means there are two choices:
+	<ol>
+		<li>Any HTTP version with "Connection: close", or</li>
+		<li>HTTP/1.0 without "Connection: keep-alive"</li>
+	</ol>
+	<p><a href='#my-log'>Click here</a> or scroll back up to see the log again.
+	That's what I saw.
+	For that specific request, there is "HTTP/1.1" in the response but no "Connection: close".
+	Now you can see the problem too.
+	I promised, didn't I?
+	<p>Without one of these responses, you get a deadlock: the HTTP/1.0 client and the HTTP/1.1 server will wait for each other until a timeout occurs
+	due to conflicting expectations by both parties because
+	HTTP/1.0 defaults to <b>non-persistent</b> connections while HTTP/1.1 defaults to <b>persistent</b> connections, the exact opposite.
+	<p>The timeout is whichever timeout that occurs first from the parties involved.
+	Apache defaults to 5 seconds, other servers are different.
+	I've seen one that defaults to 75,000,000 seconds which is over 2 years.
+	Fortunately ApacheBench defaults to a more sensible 30 seconds.
+
+	<h3 id='the-solution'>The solution</h3>
+	<p>After the investigation, the solution is easy: just send "Connection: close" to all HTTP/1.0 requests with no Connection header.
+
+<pre class='syntax'><span class='comment'>// Send &quot;Connection: close&quot; to all HTTP/1.0 requests with no Connection header
+</span><span class='if'>if</span>(<span class='variable'>$_SERVER</span>[<span class='constant_encapsed_string'>'SERVER_PROTOCOL'</span>]<span class='is_equal'>==</span><span class='constant_encapsed_string'>'HTTP/1.0'</span> <span class='boolean_and'>&amp;&amp;</span> <span class='empty'>empty</span>(<span class='variable'>$_SERVER</span>[<span class='constant_encapsed_string'>'HTTP_CONNECTION'</span>])){
+    header(<span class='constant_encapsed_string'>'Connection: close'</span>);
+}
+</pre>
+
+	<p>I recommend putting the solution at the start of your framework or application for four reasons:
+	<ol><li>To prevent any occurrence of Slim Framework's problem.</li>
+		<li>To allow sending the highest HTTP version you support in every response, which is recommended by the specification.</li>
+		<li>To support HTTP/1.0 clients, both the ones that support connection persistence and the ones that don't.</li>
+		<li>If your framework or application already sends HTTP/1.0 responses adaptively, to simplify your code by letting the solution handle it.</li>
+	</ol>
+	<p>I also recommend adding my full name to it with a text that reminds you of who is responsible if the code doesn't work.
+	This will do:
+
+<pre class='syntax'><span class='comment'>// By Reinir Puradinata &lt;-- Blame this guy if this doesn't work
+</span></pre>
+
+	<p>Be creative with it. Go nuts. Now let's put the solution in Slim.
+
+	<h3 id='applying-the-solution'>Applying the solution</h3>
+	<p>There are two approaches on how to put the solution in Slim.
+	The first and the easiest is my recommendation above.
+	This is the new <code>Slim\App</code> constructor:
+
+<pre class='syntax'><span class='public'>public</span> <span class='function'>function</span> __construct(<span class='variable'>$container</span> = [])
+{
+    <span class='comment'>// Send &quot;Connection: close&quot; to all HTTP/1.0 requests with no Connection header
+</span>    <span class='if'>if</span> (<span class='variable'>$_SERVER</span>[<span class='constant_encapsed_string'>'SERVER_PROTOCOL'</span>] <span class='is_equal'>==</span> <span class='constant_encapsed_string'>'HTTP/1.0'</span> <span class='boolean_and'>&amp;&amp;</span> <span class='empty'>empty</span>(<span class='variable'>$_SERVER</span>[<span class='constant_encapsed_string'>'HTTP_CONNECTION'</span>])) {
+        header(<span class='constant_encapsed_string'>'Connection: close'</span>);
+    }
+    <span class='if'>if</span> (is_array(<span class='variable'>$container</span>)) {
+        <span class='variable'>$container</span> = <span class='new'>new</span> Container(<span class='variable'>$container</span>);
+    }
+    <span class='if'>if</span> (!<span class='variable'>$container</span> <span class='instanceof'>instanceof</span> ContainerInterface) {
+        <span class='throw'>throw</span> <span class='new'>new</span> InvalidArgumentException(<span class='constant_encapsed_string'>'Expected a ContainerInterface'</span>);
+    }
+    <span class='variable'>$this</span><span class='object_operator'>-&gt;</span>container = <span class='variable'>$container</span>;
+}
+</pre>
+
+	<p>The second approach is by following the way Slim sends headers, which appears to be in <code>Slim\DefaultServicesProvider</code> class.
+	Since I'm not a Slim expert or even a user I can't be sure if the solution will always be executed due to the "Default" in the class name which suggests that it or parts of it can be replaced.
+	Thus my recommendation holds: use the first approach.
+
+	<h3 id='the-new-and-improved-slim'>The new and improved Slim</h3>
+	<p>With the solution in place, Slim Framework 3.6.0 now sends the correct response.
+	Well, at least my copy does:
+
+<pre class='syntax'>
+Benchmarking localhost (be patient)...INFO: GET header ==
+---
+GET /slim/ HTTP/1.0
+Host: localhost
+User-Agent: ApacheBench/2.3
+Accept: */*
+
+
+---
+LOG: header received:
+HTTP/1.1 200 OK
+Date: Tue, 29 Nov 2016 10:11:56 GMT
+Server: Apache/2.4.9 (Win32)
+Connection: close
+Content-Length: 16
+Content-Type: text/html; charset=UTF-8
+
+Welcome to Slim!
+..done
+
+
+Time taken for tests:   0.005 seconds
+Complete requests:      1
+</pre>
+
+	<p>Because the solution is adaptive, advanced features such as persistent connections are not affected
+	as shown in this benchmark where Slim is faster with the <code>-k</code> switch than without:
+
+	<div class='table-responsive'>
+		<table class='table table-hover nobr'>
+			<thead>
+				<tr><th>Framework<th class='text-right-xs'>With -k<th class='text-right-xs'>Without -k<th class='text-right-xs'>Content length</tr>
+			<tbody>
+				<tr align='right'><td align='left'><a href='http://slimframework.com'>Slim Framework 3.6.0 Fixed ("Welcome to Slim!" example)</a>
+					<td>791.95 #/sec
+					<td>682.26 #/sec
+					<td>16 bytes
+				</tr>
+				<tr align='right'><td align='left'><a href='http://cogframework.com/ab/reinir/hello-world'>Cog Framework 1.0 (Hello World)</a>
+					<td>2543.58 #/sec
+					<td>1685.06 #/sec
+					<td>722 bytes
+				</tr>
+				<tr align='right'><td align='left'><a href='http://cogframework.com/ab/reinir/benchmark'>Cog Framework 1.0 + Template (Router Benchmark)</a>
+					<td>1054.94 #/sec
+					<td>1056.91 #/sec
+					<td>12269 bytes
+				</tr>
+		</table>
+	</div>
+	<p>Now that's more like it.
+
+	<h3 id='conclusion'>Conclusion</h3>
+	<p>There are several things to learn from this.
+	The first is when in doubt, refer to the specification.
+	It exists for a reason.
+	<p>The second is if an issue arises, always assume responsibility, never ever shift the blame.
+    Particularly, if you don't know what's going on.
+	This rule will serve you well because it will motivate you to scrutinize your own code, leaving less chance that a bug goes unsolved for a long time.
+	If you still can't solve the problem you're having, ask me.
+	Maybe I can help.
+	<p>To implement the solution in your framework or application, simply follow my recommendation and example with Slim Framework above.
+	Even if your code doesn't have the problem at the moment, the solution will prevent it from occurring in the future.
+	
+</div></div>
+				</div>
+			<hr>
+			<footer><div class='part-container' style='margin-bottom:10px'><div class='part'>Copyright &copy; 2017 <a href='mailto:reinir@gmail.com'>Reinir Puradinata</a></div></div></footer>
+		</div>
+	</div>
+
+<script src="/js/jquery.min.js"></script>
+<script src="/js/bootstrap.min.js"></script>
+<script src="/js/ie10-viewport-bug-workaround.js"></script>
+</body>
+</html>
